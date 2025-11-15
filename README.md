@@ -1,86 +1,144 @@
 # MCP Server (Crypto Market Data Provider)
 
-Below is an organized and polished version of your project documentation. You can edit or expand it anytime.
+This project delivers a unified API layer for cryptocurrency market data using FastAPI and ccxt. It provides both REST and WebSocket interfaces, supports over 100 exchanges, and is designed for performance, clarity, and resilience.
+
+## Core Features
+
+### FastAPI Backend
+
+* Fully asynchronous.
+* High-performance endpoints for real-time usage.
+
+### Unified CCXT Integration
+
+* A single `MarketDataProvider` class handles all ccxt logic.
+* Dynamically creates exchange instances only when needed.
+
+### REST API
+
+* Health checks
+* Exchange list
+* Real-time tickers
+* Historical OHLCV data
+
+### WebSocket API
+
+* Near real-time ticker updates
+* Uses internal polling loop
+* Works seamlessly with existing caching
+
+### Dynamic Caching
+
+* Custom `SimpleTTLCache`
+* Applied mainly to high-frequency ticker requests
+* TTL-based in-memory storage with max-size control
+
+### IP-Based Rate Limiting
+
+* Custom token bucket implementation
+* Per-client IP buckets
+* Configurable via environment variables
+
+### Structured Logging
+
+* JSON and text formats
+* Supports production or development use
+
+### Centralized Configuration
+
+* All settings managed via `pydantic-settings`
+* Supports `.env` or environment variables
+* All keys must be prefixed with `MCP_`
 
 ---
 
-## Overview
+## Project Architecture
 
-This server provides real-time and historical cryptocurrency market data using FastAPI and CCXT. It is fully asynchronous and built to support high-frequency access from more than 100 major exchanges. The system includes REST endpoints, a WebSocket feed, caching, and a complete test suite.
+The server is built on a clean separation between API routes and business logic.
+
+### 1. Core Logic (data_provider.py)
+
+* `MarketDataProvider` is the central component.
+* Created once in `main.py` and reused.
+* Builds ccxt exchange instances on demand.
+* Handles validation, caching, and data normalization.
+
+### 2. Error Handling
+
+* Catches ccxt exceptions such as `BadSymbol`, `NetworkError`, and `ExchangeError`.
+* Converts them into FastAPI `HTTPException` responses.
+* Ensures stable and predictable API responses.
+
+### 3. Caching Strategy
+
+* Only real-time tickers are cached.
+* Historical OHLCV data is not cached due to variable combinations.
+* `SimpleTTLCache` provides TTL expiration and size-based eviction.
+
+### 4. Rate Limiting
+
+* Token bucket algorithm.
+* Per-IP counters.
+* In-memory storage.
+* Prevents abuse and protects upstream exchanges.
+
+### 5. WebSocket Strategy
+
+* Polls the provider on an interval for ticker updates.
+* Pushes updates to connected clients.
+* Simpler and more predictable than direct exchange WebSockets.
+
+### 6. Configuration
+
+* Managed by `config.py` via `pydantic-settings`.
+* Supports loading from `.env`.
+* All config keys start with `MCP_`.
+
+### 7. Logging
+
+* Defined in `logger.py`.
+* JSON logs for production, text logs for development.
 
 ---
 
-## Key Features
+## Assumptions & Limitations
 
-* **FastAPI Backend:** Async-first design with automatic API docs.
-* **CCXT Integration:** Unified access to exchanges like Binance, Coinbase, and Kraken.
-* **Real-time Price API:** Fetch latest ticker values.
-* **Historical OHLCV API:** Retrieve open-high-low-close-volume candles.
-* **WebSocket Updates:** Near real-time price streaming through polling.
-* **In-memory TTL Caching:** Improves response speed and reduces rate limits.
-* **Error Handling:** Clean JSON errors for invalid symbols or network issues.
-* **Validated Models:** All data shapes enforced using Pydantic.
-* **Test Suite:** Covers both data logic and API behavior.
+### Single-Worker Deployment
 
----
+* Cache and rate limiter live in memory.
+* Multi-worker setups require Redis or similar external storage.
 
-## Architecture & Design
+### IP as Identifier
 
-### FastAPI Choice
+* Assumes valid client IPs.
+* Behind proxies, must enable `--proxy-headers` and configure forwarding.
 
-FastAPI works well for I/O-heavy API calls. It provides validation through Pydantic and comes with interactive docs.
+### WebSocket Polling
 
-### Data Layer
-
-The `MarketDataProvider` in `data_provider.py` manages CCXT, caching, and error handling. Endpoints remain lightweight.
-
-### Caching
-
-A simple `SimpleTTLCache` stores ticker responses for 10 seconds. This keeps responses fast and avoids triggering exchange rate limits.
-
-### Error Handling
-
-Exchange-specific CCXT errors are converted into relevant HTTP exceptions (400, 404, 503, etc.) to avoid crashes.
-
-### WebSocket Strategy
-
-Instead of handling exchange WebSockets, the server polls ticker data at a selected interval and streams the results.
-
-### Limitations
-
-* Cache is in-memory and not shared across workers.
-* WebSocket updates are near real-time, not true streaming.
-* No authentication is included by default.
+* Near real-time, not true streaming.
+* Minimum 1-second interval.
+* Suitable for dashboards, not HFT.
 
 ---
 
-## Project Structure
+## Setup & Installation
+
+### Clone the Repository
 
 ```
-.
-├── main.py
-├── data_provider.py
-├── caching.py
-├── models.py
-├── requirements.txt
-├── test_main.py
-└── test_data_provider.py
+git clone https://github.com/your-username/mcp_server.git
+cd mcp_server
 ```
 
----
-
-## Installation
-
-### 1. Clone or create project files
-
-### 2. Create a virtual environment
+### Create and Activate Virtual Environment
 
 ```
 python -m venv venv
-source venv/bin/activate   # Windows: venv\Scripts\activate
+source venv/bin/activate     # Linux/Mac
+venv\Scripts\activate        # Windows
 ```
 
-### 3. Install dependencies
+### Install Dependencies
 
 ```
 pip install -r requirements.txt
@@ -88,75 +146,38 @@ pip install -r requirements.txt
 
 ---
 
-## Running the Server
+## Configuration
 
-Start using uvicorn:
+Create a `.env` file or export variables.
+All must be prefixed with `MCP_`.
+
+Example `.env`:
+
+```
+MCP_TICKER_CACHE_TTL=15
+MCP_RATE_LIMIT_REQUESTS=120
+MCP_RATE_LIMIT_PERIOD=60
+MCP_LOG_LEVEL=DEBUG
+MCP_LOG_FORMAT=text
+```
+
+---
+
+## Running the Server
 
 ```
 uvicorn main:app --reload
 ```
 
-### API Documentation
+Access the API docs:
 
-* Swagger UI: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+* Swagger: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 * ReDoc: [http://127.0.0.1:8000/redoc](http://127.0.0.1:8000/redoc)
 
 ---
 
 ## Running Tests
 
-Run the full test suite:
-
 ```
 pytest
-```
-
----
-
-## Endpoints
-
-### 1. Real-time Price Ticker
-
-```
-GET /price/{exchange_id}/{symbol}
-```
-
-Example:
-
-```
-http://127.0.0.1:8000/price/binance/BTC/USDT
-```
-
-### 2. Historical OHLCV
-
-```
-GET /historical/{exchange_id}/{symbol}
-```
-
-Query params:
-
-* timeframe: default 1d
-* since: start timestamp (ms)
-* limit: default 100
-
-Example:
-
-```
-http://127.0.0.1:8000/historical/coinbase/ETH/USD?timeframe=1h&limit=50
-```
-
-### 3. WebSocket Streaming
-
-```
-WS /ws/{exchange_id}/{symbol}
-```
-
-Query param:
-
-* poll_interval (default 5s)
-
-Example:
-
-```
-ws://127.0.0.1:8000/ws/kraken/XBT/EUR?poll_interval=2
 ```
